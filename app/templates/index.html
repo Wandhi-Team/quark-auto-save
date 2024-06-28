@@ -26,12 +26,17 @@
     .title {
       margin-top: 30px;
     }
+
+    .modal-body {
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+    }
   </style>
 </head>
 
 <body>
   <div id="app" class="container mt-5">
-    <h1 class="mb-4">夸克自动转存配置</h1>
+    <h1 class="mb-4"><i class="bi bi-clouds"></i> 夸克自动转存</h1>
     <form @submit.prevent="saveConfig">
 
       <div class="row title">
@@ -42,9 +47,9 @@
           <button type="button" class="btn btn-outline-primary mb-3" @click="addCookie()">+</button>
         </div>
       </div>
-      <p>所有账号执行签到，仅第一个账号执行转存，请自行确认顺序。</p>
+      <p>所有账号执行签到，仅第一个账号执行转存，请自行确认顺序。<b>最好是手机验证码<a target="_blank" href="https://pan.quark.cn/">登录</a>，CK比较完整！</b></p>
       <div v-for="(value, index) in formData.cookie" :key="index" class="input-group mb-2">
-        <input type="text" v-model="formData.cookie[index]" class="form-control" placeholder="打开 pan.quark.com 抓取">
+        <input type="text" v-model="formData.cookie[index]" class="form-control" placeholder="打开 pan.quark.com 按 F12 抓取">
         <div class="input-group-append">
           <button type="button" class="btn btn-outline-danger" @click="removeCookie(index)">-</button>
         </div>
@@ -103,68 +108,106 @@
           <h2>任务列表</h2>
         </div>
       </div>
+      <div class="form-group row">
+        <label class="col-sm-2 col-form-label">路径筛选</label>
+        <div class="input-group col-sm-10">
+          <select class="form-control" v-model="taskDirSelected">
+            <option v-for="(dir, index) in taskDirs" :value="dir" v-html="dir"></option>
+          </select>
+          <div class="input-group-append">
+            <button type="button" class="btn btn-outline-secondary" @click="clearData('taskDirSelected')"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group row">
+        <label class="col-sm-2 col-form-label">名称筛选</label>
+        <div class="input-group col-sm-10">
+          <input type="text" class="form-control" v-model="taskNameFilter">
+          <div class="input-group-append">
+            <button type="button" class="btn btn-outline-secondary" @click="clearData('taskNameFilter')"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </div>
+      </div>
       <div v-for="(task, index) in formData.tasklist" :key="index" class="task mb-3">
-        <hr>
-        <div class="form-group row">
-          <div class="col">
-            <h3>任务#<span v-html="index+1"></span></h3>
-          </div>
-          <div class="col text-right">
-            <button type="button" class="btn btn-outline-danger" @click="removeTask(index)">删除任务</button>
-          </div>
-        </div>
-        <div class="alert alert-warning" role="alert" v-if="task.shareurl_ban" v-html="task.shareurl_ban"></div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">任务名称</label>
-          <div class="col-sm-10">
-            <input type="text" name="taskname[]" class="form-control mb-2" v-model="task.taskname" placeholder="必填">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">分享链接</label>
-          <div class="col-sm-10">
-            <input type="text" name="shareurl[]" class="form-control mb-2" v-model="task.shareurl" placeholder="必填" @input="clearShareurlBan(task)">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">保存路径</label>
-          <div class="col-sm-10">
-            <input type="text" name="savepath[]" class="form-control mb-2" v-model="task.savepath" placeholder="必填">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">正则过滤</label>
-          <div class="col-sm-10">
-            <input type="text" name="pattern[]" class="form-control mb-2" v-model="task.pattern" placeholder="留空为不过滤">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">正则替换</label>
-          <div class="col-sm-10">
-            <input type="text" name="replace[]" class="form-control mb-2" v-model="task.replace" placeholder="留空为不替换">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">截止日期</label>
-          <div class="col-sm-10">
-            <input type="date" name="enddate[]" class="form-control mb-2" v-model="task.enddate" placeholder="可选">
-          </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">运行星期</label>
-          <div class="col-sm-10">
-            <div class="form-check form-check-inline" v-for="(day, index) in weekdays" :key="index">
-              <input class="form-check-input" type="checkbox" v-model="task.runweek" :value="index+1">
-              <label class="form-check-label" v-html="day"></label>
+        <template v-if="(taskDirSelected == '' || getParentDirectory(task.savepath) == taskDirSelected) && task.taskname.includes(taskNameFilter)">
+          <hr>
+          <div class="form-group row">
+            <div class="col">
+              <h3>任务#<span v-html="index+1"></span></h3>
+            </div>
+            <div class="col text-right">
+              <button type="button" class="btn btn-outline-primary" @click="runScriptNow(index)" title="运行此任务"><i class="bi bi-play-fill"></i></button>
+              <button type="button" class="btn btn-outline-danger" @click="removeTask(index)" title="删除此任务"><i class="bi bi-trash3-fill"></i></button>
             </div>
           </div>
-        </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label">Emby ID</label>
-          <div class="col-sm-10">
-            <input type="number" name="emby_id[]" class="form-control mb-2" v-model="task.emby_id" placeholder="可选">
+          <div class="alert alert-warning" role="alert" v-if="task.shareurl_ban" v-html="task.shareurl_ban"></div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">任务名称</label>
+            <div class="col-sm-10">
+              <input type="text" name="taskname[]" class="form-control" v-model="task.taskname" placeholder="必填">
+            </div>
           </div>
-        </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">分享链接</label>
+            <div class="col-sm-10">
+              <div class="input-group">
+                <input type="text" name="shareurl[]" class="form-control" v-model="task.shareurl" placeholder="必填" @input="clearShareurlBan(task)">
+                <div class="input-group-append" v-if="task.shareurl">
+                  <div class="input-group-text">
+                    <a target="_blank" :href="task.shareurl"><i class="bi bi-box-arrow-up-right"></i></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">保存路径</label>
+            <div class="col-sm-10">
+              <input type="text" name="savepath[]" class="form-control" v-model="task.savepath" placeholder="必填">
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">正则处理</label>
+            <div class="col-sm-10">
+              <div class="input-group">
+                <input type="text" name="pattern[]" class="form-control" v-model="task.pattern" placeholder="匹配表达式">
+                <input type="text" name="replace[]" class="form-control" v-model="task.replace" placeholder="替换表达式">
+                <div class="input-group-append">
+                  <div class="input-group-text">
+                    <input type="checkbox" title="忽略后缀" v-model="task.ignore_extension">&nbsp;忽略后缀
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">更子目录</label>
+            <div class="col-sm-10">
+              <input type="text" name="update_subdir[]" class="form-control" v-model="task.update_subdir" placeholder="可选，需更新子目录的正则式，多项以|分割，如 4k|1080p ，注意！深层嵌套目录慎用 .* ！" title="注意！深层嵌套目录逐级索引，工作强度会非常大，慎用！">
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">截止日期</label>
+            <div class="col-sm-10">
+              <input type="date" name="enddate[]" class="form-control" v-model="task.enddate" placeholder="可选">
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">运行星期</label>
+            <div class="col-sm-10">
+              <div class="form-check form-check-inline" v-for="(day, index) in weekdays" :key="index">
+                <input class="form-check-input" type="checkbox" v-model="task.runweek" :value="index+1">
+                <label class="form-check-label" v-html="day"></label>
+              </div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">Emby ID</label>
+            <div class="col-sm-10">
+              <input type="number" name="emby_id[]" class="form-control" v-model="task.emby_id" placeholder="可选">
+            </div>
+          </div>
+        </template>
       </div>
       <div class="row">
         <div class="col-sm-12 text-center">
@@ -175,13 +218,14 @@
       <div class="row">
         <div class="col-sm-12 text-center">
           <p>
-            <a target="_blank" href="https://github.com/Cp0204/quark-auto-save">@Cp0204/quark_auto_save</a> v[[ version ]]
+            <a target="_blank" href="https://github.com/Cp0204/quark-auto-save"><i class="bi bi-github"></i> Cp0204/quark_auto_save</a> <span v-html="versionTips"></span>
           </p>
         </div>
       </div>
       <div class="bottom-buttons">
         <button class="btn btn-success"><i class="bi bi-save"></i> 保存</button>
-        <a class="btn btn-primary" @click="runScriptNow"><i class="bi bi-play-fill"></i> 运行</a>
+        <button type="button" class="btn btn-primary" @click="runScriptNow()"><i class="bi bi-play-fill"></i> 运行</button>
+        <button type="button" class="btn btn-info" @click="scrollToX(0)" @dblclick="scrollToX()" data-toggle="tooltip" data-placement="top" title="单击回顶，双击到底"><i class="bi bi-chevron-bar-up"></i> 回顶</button>
         <a class="btn btn-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> 退出</a>
       </div>
     </form>
@@ -191,7 +235,8 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">执行日志</h5>
+            <h5 class="modal-title">运行日志 <div v-if="modalLoading" class="spinner-border spinner-border-sm m-1" role="status"></div>
+            </h5>
             <button type="button" class="close" data-dismiss="modal" aria-label="Close">
               <span aria-hidden="true">&times;</span>
             </button>
@@ -207,8 +252,7 @@
 
   <!-- 引入 Bootstrap JS -->
   <script src="./static/js/jquery-3.5.1.slim.min.js"></script>
-  <script src="./static/js/popper.min.js"></script>
-  <script src="./static/js/bootstrap.min.js"></script>
+  <script src="./static/js/bootstrap.bundle.min.js"></script>
 
   <!-- 引入 Vue.js -->
   <script src="./static/js/vue@2.js"></script>
@@ -218,6 +262,8 @@
     var app = new Vue({
       el: '#app',
       data: {
+        version: "[[ version ]]",
+        versionTips: "",
         weekdays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
         formData: {
           cookie: [],
@@ -228,7 +274,22 @@
           },
           tasklist: []
         },
-        run_log: ""
+        newTask: {
+          taskname: "",
+          shareurl: "",
+          savepath: "",
+          pattern: "",
+          replace: "",
+          enddate: "",
+          emby_id: "",
+          ignore_extension: false,
+          runweek: [1, 2, 3, 4, 5, 6, 7]
+        },
+        run_log: "",
+        taskDirs: [""],
+        taskDirSelected: "",
+        taskNameFilter: "",
+        modalLoading: false
       },
       watch: {
         'formData.push_config': {
@@ -248,20 +309,46 @@
       },
       mounted() {
         this.fetchData();
+        this.checkNewVersion();
+        $('[data-toggle="tooltip"]').tooltip()
       },
       methods: {
+        checkNewVersion() {
+          this.versionTips = this.version;
+          axios.get('https://api.github.com/repos/Cp0204/quark-auto-save/tags')
+            .then(response => {
+              latestVersion = response.data[0].name;
+              console.log(`检查版本：当前 ${this.version} 最新 ${latestVersion}`);
+              if (latestVersion != this.version) {
+                this.versionTips += ` <sup><span class="badge badge-pill badge-danger">${latestVersion}</span></sup>`;
+              }
+            })
+            .catch(error => {
+              console.error('Error:', error);
+            });
+        },
         fetchData() {
           axios.get('/data')
             .then(response => {
               // cookie兼容
               if (typeof response.data.cookie === 'string')
                 response.data.cookie = [response.data.cookie];
-              // 星期运行兼容
+              // 添加星期预设
               response.data.tasklist = response.data.tasklist.map(task => {
                 if (!task.hasOwnProperty('runweek')) {
                   task.runweek = [1, 2, 3, 4, 5, 6, 7];
                 }
                 return task;
+              });
+              // 添加emby预设
+              if (!response.data.hasOwnProperty('emby')) {
+                response.data.emby = { ...this.emby };
+              }
+              // 获取所有任务父目录
+              response.data.tasklist.forEach(item => {
+                parentDir = this.getParentDirectory(item.savepath)
+                if (!this.taskDirs.includes(parentDir))
+                  this.taskDirs.push(parentDir);
               });
               this.formData = response.data;
             })
@@ -283,7 +370,7 @@
           this.formData.cookie.push("");
         },
         removeCookie(index) {
-          if (confirm("确认删除吗？"))
+          if (this.formData.cookie[index] == "" || confirm("确认删除吗？"))
             this.formData.cookie.splice(index, 1);
         },
         addPush() {
@@ -296,16 +383,14 @@
             this.$delete(this.formData.push_config, key);
         },
         addTask() {
-          this.formData.tasklist.push({
-            taskname: "",
-            shareurl: "",
-            savepath: "",
-            pattern: "",
-            replace: "",
-            enddate: "",
-            emby_id: "",
-            runweek: [1, 2, 3, 4, 5, 6, 7]
-          });
+          newTask = { ...this.newTask }
+          newTask.taskname = this.taskNameFilter
+          newTask.savepath = this.taskDirSelected + "/" + newTask.taskname
+          this.formData.tasklist.push(newTask);
+          // 滚到最下
+          setTimeout(() => {
+            this.scrollToX();
+          }, 1);
         },
         removeTask(index) {
           if (confirm("确认删除吗？"))
@@ -314,17 +399,46 @@
         clearShareurlBan(task) {
           delete task.shareurl_ban;
         },
-        runScriptNow() {
+        clearData(target) {
+          this[target] = "";
+        },
+        runScriptNow(task_index = "") {
           $('#logModal').modal('toggle')
-          this.run_log = '<div class="spinner-border" role="status"></div> 请耐心等待脚本全部执行完毕...'
-          axios.post('/run_script_now')
-            .then(response => {
-              this.run_log = response.data;
-            })
-            .catch(error => {
-              this.run_log = "错误：\n" + error
-              console.error('Error:', error);
-            });
+          this.modalLoading = true
+          this.run_log = ''
+          const source = new EventSource(`/run_script_now?task_index=${task_index}`);
+          source.onmessage = (event) => {
+            if (event.data == "[DONE]") {
+              this.modalLoading = false
+              source.close();
+            } else {
+              this.run_log += event.data + '\n';
+              // 在更新 run_log 后将滚动条滚动到底部
+              this.$nextTick(() => {
+                const modalBody = document.querySelector('.modal-body');
+                modalBody.scrollTop = modalBody.scrollHeight;
+              });
+            }
+          };
+          source.onerror = (error) => {
+            this.modalLoading = false
+            console.error('Error:', error);
+            source.close();
+          };
+        },
+        getParentDirectory(path) {
+          parentDir = path.substring(0, path.lastIndexOf('/'))
+          if (parentDir == "")
+            parentDir = "/"
+          return parentDir;
+        },
+        scrollToX(top = undefined) {
+          if (top == undefined)
+            top = document.documentElement.scrollHeight
+          window.scrollTo({
+            top: top,
+            behavior: "smooth"
+          });
         }
       }
     });

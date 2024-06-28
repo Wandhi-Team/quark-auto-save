@@ -33,7 +33,7 @@ def print(text, *args, **kw):
 # 通知服务
 # fmt: off
 push_config = {
-    'HITOKOTO': False,                  # 启用一言（随机句子）
+    'HITOKOTO': True,                  # 启用一言（随机句子）
 
     'BARK_PUSH': '',                    # bark IP 或设备码，例：https://api.day.app/DxHcxxxxxRxxxxxxcm/
     'BARK_ARCHIVE': '',                 # bark 推送是否存档
@@ -43,7 +43,7 @@ push_config = {
     'BARK_LEVEL': '',                   # bark 推送时效性
     'BARK_URL': '',                     # bark 推送跳转URL
 
-    'CONSOLE': True,                    # 控制台输出
+    'CONSOLE': False,                    # 控制台输出
 
     'DD_BOT_SECRET': '',                # 钉钉机器人的 DD_BOT_SECRET
     'DD_BOT_TOKEN': '',                 # 钉钉机器人的 DD_BOT_TOKEN
@@ -113,7 +113,6 @@ push_config = {
     'WEBHOOK_METHOD': '',               # 自定义通知 请求方法
     'WEBHOOK_CONTENT_TYPE': ''          # 自定义通知 content-type
 }
-notify_function = []
 # fmt: on
 
 # 首先读取 面板变量 或者 github action 运行变量
@@ -214,7 +213,7 @@ def feishu_bot(title: str, content: str) -> None:
     data = {"msg_type": "text", "content": {"text": f"{title}\n\n{content}"}}
     response = requests.post(url, data=json.dumps(data)).json()
 
-    if response.get("StatusCode") == 0:
+    if response.get("StatusCode") == 0 or response.get("code") == 0:
         print("飞书 推送成功！")
     else:
         print("飞书 推送失败！错误信息如下：\n", response)
@@ -578,7 +577,9 @@ def aibotk(title: str, content: str) -> None:
         or not push_config.get("AIBOTK_TYPE")
         or not push_config.get("AIBOTK_NAME")
     ):
-        print("智能微秘书 的 AIBOTK_KEY 或者 AIBOTK_TYPE 或者 AIBOTK_NAME 未设置!!\n取消推送")
+        print(
+            "智能微秘书 的 AIBOTK_KEY 或者 AIBOTK_TYPE 或者 AIBOTK_NAME 未设置!!\n取消推送"
+        )
         return
     print("智能微秘书 服务启动")
 
@@ -748,32 +749,29 @@ def parse_headers(headers):
     return parsed
 
 
-def parse_body(body, content_type):
-    if not body or content_type == "text/plain":
-        return body
-
-    parsed = {}
-    lines = body.split("\n")
-
-    for line in lines:
-        i = line.find(":")
-        if i == -1:
-            continue
-
-        key = line[:i].strip()
-        val = line[i + 1 :].strip()
-
-        if not key or key in parsed:
-            continue
-
+def parse_string(input_string, value_format_fn=None):
+    matches = {}
+    pattern = r"(\w+):\s*((?:(?!\n\w+:).)*)"
+    regex = re.compile(pattern)
+    for match in regex.finditer(input_string):
+        key, value = match.group(1).strip(), match.group(2).strip()
         try:
-            json_value = json.loads(val)
-            parsed[key] = json_value
+            value = value_format_fn(value) if value_format_fn else value
+            json_value = json.loads(value)
+            matches[key] = json_value
         except:
-            parsed[key] = val
+            matches[key] = value
+    return matches
+
+
+def parse_body(body, content_type, value_format_fn=None):
+    if not body or content_type == "text/plain":
+        return value_format_fn(body) if value_format_fn and body else body
+
+    parsed = parse_string(body, value_format_fn)
 
     if content_type == "application/x-www-form-urlencoded":
-        data = urlencode(parsed, doseq=True)
+        data = urllib.parse.urlencode(parsed, doseq=True)
         return data
 
     if content_type == "application/json":
@@ -781,18 +779,6 @@ def parse_body(body, content_type):
         return data
 
     return parsed
-
-
-def format_notify_content(url, body, title, content):
-    if "$title" not in url and "$title" not in body:
-        return {}
-
-    formatted_url = url.replace("$title", urllib.parse.quote_plus(title)).replace(
-        "$content", urllib.parse.quote_plus(content)
-    )
-    formatted_body = body.replace("$title", title).replace("$content", content)
-
-    return formatted_url, formatted_body
 
 
 def custom_notify(title: str, content: str) -> None:
@@ -811,18 +797,21 @@ def custom_notify(title: str, content: str) -> None:
     WEBHOOK_BODY = push_config.get("WEBHOOK_BODY")
     WEBHOOK_HEADERS = push_config.get("WEBHOOK_HEADERS")
 
-    formatUrl, formatBody = format_notify_content(
-        WEBHOOK_URL, WEBHOOK_BODY, title, content
-    )
-
-    if not formatUrl and not formatBody:
+    if "$title" not in WEBHOOK_URL and "$title" not in WEBHOOK_BODY:
         print("请求头或者请求体中必须包含 $title 和 $content")
         return
 
     headers = parse_headers(WEBHOOK_HEADERS)
-    body = parse_body(formatBody, WEBHOOK_CONTENT_TYPE)
+    body = parse_body(
+        WEBHOOK_BODY,
+        WEBHOOK_CONTENT_TYPE,
+        lambda v: v.replace("$title", title).replace("$content", content),
+    )
+    formatted_url = WEBHOOK_URL.replace(
+        "$title", urllib.parse.quote_plus(title)
+    ).replace("$content", urllib.parse.quote_plus(content))
     response = requests.request(
-        method=WEBHOOK_METHOD, url=formatUrl, headers=headers, timeout=15, data=body
+        method=WEBHOOK_METHOD, url=formatted_url, headers=headers, timeout=15, data=body
     )
 
     if response.status_code == 200:
@@ -842,6 +831,7 @@ def one() -> str:
 
 
 def add_notify_function():
+    notify_function = []
     if push_config.get("BARK_PUSH"):
         notify_function.append(bark)
     if push_config.get("CONSOLE"):
@@ -897,8 +887,19 @@ def add_notify_function():
     if push_config.get("WEBHOOK_URL") and push_config.get("WEBHOOK_METHOD"):
         notify_function.append(custom_notify)
 
+    if not notify_function:
+        print(f"无推送渠道，请检查通知变量是否正确")
+    return notify_function
 
-def send(title: str, content: str) -> None:
+
+def send(title: str, content: str, ignore_default_config: bool = False, **kwargs):
+    if kwargs:
+        global push_config
+        if ignore_default_config:
+            push_config = kwargs  # 清空从环境变量获取的配置
+        else:
+            push_config.update(kwargs)
+
     if not content:
         print(f"{title} 推送内容为空！")
         return
@@ -913,7 +914,7 @@ def send(title: str, content: str) -> None:
     hitokoto = push_config.get("HITOKOTO")
     content += "\n\n" + one() if hitokoto else ""
 
-    add_notify_function()
+    notify_function = add_notify_function()
     ts = [
         threading.Thread(target=mode, args=(title, content), name=mode.__name__)
         for mode in notify_function
